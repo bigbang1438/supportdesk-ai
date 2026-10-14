@@ -1,0 +1,245 @@
+name: Import frozen SupportDesk source
+
+on: workflow_dispatch
+
+permissions: {}
+
+concurrency:
+  group: supportdesk-frozen-source-import
+  cancel-in-progress: false
+
+jobs:
+  import:
+    if: github.repository == 'bigbang1438/supportdesk-ai' && github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout dispatched commit
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Validate pinned archive and prepare source commit
+        id: import_source
+        run: |
+          python3 - --apply <<'PY'
+          """Validate a pinned public source archive, then import only its non-workflow files."""
+          from pathlib import Path, PurePosixPath
+          import argparse
+          import hashlib
+          import io
+          import json
+          import os
+          import re
+          import stat
+          import subprocess
+          from zipfile import ZipFile, ZIP_DEFLATED, ZIP_STORED
+
+          SPEC = json.loads(r'''{"branch": "main", "files": [{"bytes": 847, "path": ".env.example", "sha256": "d176671b6d0fc3e4afbb881af0f67d21d9a82a054944d1ced48ec6d80f716c84"}, {"bytes": 776, "path": ".github/workflows/verify.yml", "sha256": "12c0201668fcb70e6c9e9dedae75ed8f738f81cbf65fce61a5b919abb09c2578"}, {"bytes": 203, "path": ".gitignore", "sha256": "5ce66cecd6f0616b4c875f25cca93f8b2cd87fe08f6cdbc19704b306b856d37c"}, {"bytes": 1084, "path": "LICENSE", "sha256": "e9ade211d852c7482326ff437536a13be2a5f8fe350268474d59889bf9cfd884"}, {"bytes": 4444, "path": "README.md", "sha256": "b75e609c6ae0747f2d7cbbcb2923201c99806b9b6749c78f6761eac0a4ada706"}, {"bytes": 2317, "path": "docs/architecture.md", "sha256": "72f554bc12600fbe78883399a873dc727dcc902db8204fdda2db2088042f6fce"}, {"bytes": 2793, "path": "docs/backend-walkthrough.md", "sha256": "d355afdd8ceb81a894a5e467351b6ab2c6aceabc03465e81181b3246a6a434ce"}, {"bytes": 5699, "path": "docs/interview-guide.md", "sha256": "a2c8a34a7cc2d03b548e902a076468d47655d0270353582e467ec01436ccba8f"}, {"bytes": 5561, "path": "docs/quickstart.md", "sha256": "1cb19dfe5858deb0b7a8ddcedde2d34d71d8e75948192c2add77a289915247ae"}, {"bytes": 5334, "path": "docs/real-model-smoke.md", "sha256": "4911a0e7195d2667320c90d3efbfd984ca6057f521cc5e5cc1f7efd0b03ba7aa"}, {"bytes": 3808, "path": "docs/verification.md", "sha256": "cbf46d7226c887b5b870ce3dde8c5a30aba263faf1a9df11e94e1c421df38bf1"}, {"bytes": 50, "path": "frontend/.gitignore", "sha256": "02f7c7fcdd4a11917d464d94ec048946a2af7bffa4a134f122fa8d6ad11087bd"}, {"bytes": 510, "path": "frontend/index.html", "sha256": "a6bc873972d561ebb1cb834feac174e98c63ebf250da4f9dac0494f83d792e61"}, {"bytes": 34202, "path": "frontend/package-lock.json", "sha256": "54d412167eefaa7c7fd746d18b0af899b85ed7a080cf45096b3d1672e6645967"}, {"bytes": 395, "path": "frontend/package.json", "sha256": "dc1f71613dbf4e77e102ddd24bde9cbe85e4aa3e5f318fb6240f3f0665ed8af2"}, {"bytes": 41700, "path": "frontend/src/App.vue", "sha256": "2838aa201bb3062b186abbdaade39dead3e9479e94ba9968f2115f9446e23005"}, {"bytes": 2965, "path": "frontend/src/api.js", "sha256": "1e73f88efa3ea16bee64ac2c9fee4d9b000112ed3d77508190b9dc5d269c75ac"}, {"bytes": 2659, "path": "frontend/src/domain.js", "sha256": "5718f486397fde53dd35b29b8f900fde196e09737a0d9049861e42333b983e29"}, {"bytes": 111, "path": "frontend/src/main.js", "sha256": "0d42fb6bb74a51d647f20a0cd2bcdcc7b89b146f4cdfbf6f1f7b640e7e036119"}, {"bytes": 23317, "path": "frontend/src/style.css", "sha256": "4c01c37288655e9e005d71cde60030d2924bf3d37e9a8c6e48b2b358c2ca7951"}, {"bytes": 306, "path": "frontend/src/workspace-state.js", "sha256": "6a166137c93eca9cba53a20bf7be7f884d21e576b9ccf847bcbd1173799a2eb4"}, {"bytes": 6723, "path": "frontend/test/api.test.js", "sha256": "85abfdcef6c69f82d7b3eb69f2def4731e61a33e291fd076e70146b60ca7a926"}, {"bytes": 4286, "path": "frontend/test/domain.test.js", "sha256": "b45fe0227a858316898bdae9788d0fd688b29de179d1171c74aa72277ede7dac"}, {"bytes": 735, "path": "frontend/test/workspace-state.test.js", "sha256": "87de06bde262d4ca53db0c408b44c2f10bfe8bb0a0b4ebb4b182583a91318366"}, {"bytes": 328, "path": "frontend/vite.config.js", "sha256": "e730303e38e5b10440f56c5f86215248bf2df1a00da4a7ff0f4273ee6976b8de"}, {"bytes": 2393, "path": "pom.xml", "sha256": "510ec5d82cca32518d9fc047c919fb879f9b1485c4cffc1e422910670e39fe77"}, {"bytes": 3040, "path": "src/main/java/com/supportdesk/ApiErrorHandler.java", "sha256": "bab356273d72c0b175680b7fad6154682b732cb6b2ea04d52761d3e84452d85a"}, {"bytes": 530, "path": "src/main/java/com/supportdesk/ApiException.java", "sha256": "27d8a7b7e650ea761fdd8030bd36d34fd8c59788cf94f63ebc4714a539bc1912"}, {"bytes": 1861, "path": "src/main/java/com/supportdesk/ApiModels.java", "sha256": "1708ab6565c6bd3cb4f13587b0e8667789084868610a9030e2fc83c7b1248062"}, {"bytes": 1885, "path": "src/main/java/com/supportdesk/AssistantController.java", "sha256": "5371fdeaad1f25a70a925c0e5dab8fdeadaeeb1c1fc98f347fbec211dffbf1af"}, {"bytes": 934, "path": "src/main/java/com/supportdesk/AssistantModels.java", "sha256": "94616265381af0cb6d6079eb60e307219bbc2430be872dfcfe570a543034ea0b"}, {"bytes": 18585, "path": "src/main/java/com/supportdesk/AssistantService.java", "sha256": "f6e10be4b71650ce76926b551d83fbfca94b16555ac17158147db0da2b16b07e"}, {"bytes": 3899, "path": "src/main/java/com/supportdesk/DemoSeed.java", "sha256": "a6b1eb9be6e228a271e4f212df204044dfbc0863ae5a18e9e1aed4b446764d88"}, {"bytes": 4581, "path": "src/main/java/com/supportdesk/KnowledgeRetriever.java", "sha256": "08fea07268d28cff3469ca7791090efe9dd6e4a1f695857057556c512190c4b0"}, {"bytes": 2469, "path": "src/main/java/com/supportdesk/LocalSecurityFilter.java", "sha256": "0c36152573520cab337208d932c87f6db35d7c72fa95a76f4906ea3f438d70e2"}, {"bytes": 9374, "path": "src/main/java/com/supportdesk/OllamaClient.java", "sha256": "05ead26dfa032775554c475cab2fd1d8d3d85704ab06774e9bdb99c1e768a803"}, {"bytes": 3319, "path": "src/main/java/com/supportdesk/SecurityConfig.java", "sha256": "8cff711bca218297f250d24e540f981c20edba3ac887d6bda05e73088d5052a9"}, {"bytes": 3316, "path": "src/main/java/com/supportdesk/SupportController.java", "sha256": "39c40e707f4a5f6659259cdd301937571c6b17b6b1e68519597f862017f4bba7"}, {"bytes": 316, "path": "src/main/java/com/supportdesk/SupportDeskApplication.java", "sha256": "168dae37bba3107e83d37d279ab54f34a1613fbea23bd0261c7498534a84ce0f"}, {"bytes": 14507, "path": "src/main/java/com/supportdesk/SupportService.java", "sha256": "9ea8ac477651474a78d6f6b159447011e99a5547efeab421ae64f9ba854d64f3"}, {"bytes": 293, "path": "src/main/resources/application-mysql.properties", "sha256": "3c9a211d9f7a864c502b4a06020867fd5dd35d8406d3d86d962ffa762d0fa663"}, {"bytes": 859, "path": "src/main/resources/application.properties", "sha256": "93abb1403a5da682300d38a528e24ba7b90e5454305d0d9af8627d9b20f15aca"}, {"bytes": 558, "path": "src/main/resources/assistant-schema.sql", "sha256": "918d2ff5f49f8ca0684a3578e494e5744a447dc569e0d0e1fb21c61321077143"}, {"bytes": 2950, "path": "src/main/resources/db/migration/mysql/V1__support_core.sql", "sha256": "705e5e08de08dbfce9ba1598fb3658e5314ec9b4e5ce5a3293f0c19c434ec19b"}, {"bytes": 763, "path": "src/main/resources/db/migration/mysql/V2__assistant.sql", "sha256": "fadd1459dd50c88819a24586ab26811601634e885076a45827f8d9da8952c39c"}, {"bytes": 2586, "path": "src/main/resources/schema.sql", "sha256": "8e020b1299ac704c146b8db79563c956d996634746892e30c1e66c600920b428"}, {"bytes": 2627, "path": "src/test/java/com/supportdesk/AssistantDisabledHttpTest.java", "sha256": "a91502ac2236b91de4de5e03927ba0aeac5ee446449943d61e6d566d1a016182"}, {"bytes": 23865, "path": "src/test/java/com/supportdesk/AssistantHttpTest.java", "sha256": "39c2fc56a82a216daeb539b8c3dd5fd2b7fd1fbc844d3e3d1a09132653242082"}, {"bytes": 6425, "path": "src/test/java/com/supportdesk/AssistantMySqlHttpTest.java", "sha256": "9551090692955a608437fc1172ec51c1b366c7eae3f1637fde5c5b69bc8cad73"}, {"bytes": 3141, "path": "src/test/java/com/supportdesk/AssistantQwenHttpTest.java", "sha256": "0f94cd4a42c846ad41d4b4e28f84d5d2f19582c239893409312f8d7354b72ad6"}, {"bytes": 1329, "path": "src/test/java/com/supportdesk/AssistantRemoteConfigHttpTest.java", "sha256": "286afba5c38f6baa3c8546a90b8529197b7ebf111517bea6594eaf3daab0415c"}, {"bytes": 4913, "path": "src/test/java/com/supportdesk/MySqlSupportHttpTest.java", "sha256": "5853b54f1871540ccce33a46cdb9df270fa1fd59c2bdff14bd498fb85ef0e3ee"}, {"bytes": 2761, "path": "src/test/java/com/supportdesk/PersistenceTest.java", "sha256": "1000abee7268a7908423383b1c6e3b1ec8e78ac5aef55b8d167412ea2b1d6c4e"}, {"bytes": 2055, "path": "src/test/java/com/supportdesk/PolicyLimitHttpTest.java", "sha256": "4dec4730e7c797dce346d670739c36a2a1a245c1da07443a9533b07b2bca9e55"}, {"bytes": 1709, "path": "src/test/java/com/supportdesk/RequestBoundaryHttpTest.java", "sha256": "435876344b4c761f9f653af81dc97fb9c23a97ac230cc4bcbb78888e30f77e30"}, {"bytes": 1783, "path": "src/test/java/com/supportdesk/SessionHttpTest.java", "sha256": "34522684ae77227cb8855e64b4b19d8867e723ab17d20325a579e9eeab4185e2"}, {"bytes": 10837, "path": "src/test/java/com/supportdesk/SupportApiHttpTest.java", "sha256": "a688e9cffdadbdc137cefffd671d07465ab2c5984a35231d78051a9b8a13f2f5"}, {"bytes": 2289, "path": "src/test/java/com/supportdesk/SupportHttpClient.java", "sha256": "b25e6213116e432036d67fb2c81b5a22425c07d26c6c1fa5dedaba05d8ac1039"}, {"bytes": 3391, "path": "src/test/java/com/supportdesk/ValidationBoundaryHttpTest.java", "sha256": "7b803b08d0131fe419233ee831c8c45bf92959f7102670eaa82428e12b029aa3"}], "repository": "bigbang1438/supportdesk-ai", "totalBytes": 297296, "zipBytes": 108783, "zipFileName": "supportdesk-ai-source.zip", "zipSha256": "a338248b8ae210d3c236127990266f7bd5810e4ed884f45e0686500174be4af5"}''')
+          EXPECTED = {entry['path']:entry for entry in SPEC['files']}
+
+
+          def fail(message):
+              raise ValueError(message)
+
+
+          def safe_name(name):
+              if not name.startswith('supportdesk-ai/') or '\\' in name or ':' in name or '\x00' in name:
+                  fail('unsafe archive path')
+              parts=name.split('/')
+              if any(part in ('','.','..') for part in parts) or PurePosixPath(name).is_absolute():
+                  fail('unsafe archive path')
+              return name.removeprefix('supportdesk-ai/')
+
+
+          def validate_structure(archive):
+              infos=archive.infolist()
+              names=[info.filename for info in infos]
+              if len(names)!=len(set(names)):
+                  fail('duplicate archive entry')
+              for info in infos:
+                  safe_name(info.filename)
+                  mode=stat.S_IFMT(info.external_attr >> 16)
+                  if info.is_dir() or mode not in (0,stat.S_IFREG):
+                      fail('archive entry must be a regular file')
+                  if info.flag_bits & 1 or info.compress_type not in (ZIP_DEFLATED,ZIP_STORED):
+                      fail('unsupported archive encoding')
+              if len(infos)!=59 or set(names)!={'supportdesk-ai/'+name for name in EXPECTED}:
+                  fail('archive file allowlist differs')
+              if sum(info.file_size for info in infos)!=SPEC['totalBytes']:
+                  fail('archive total size differs')
+              staged={}
+              for info in infos:
+                  rel=safe_name(info.filename)
+                  record=EXPECTED[rel]
+                  if info.file_size!=record['bytes'] or info.compress_size>SPEC['zipBytes']:
+                      fail('archive file size differs')
+                  with archive.open(info) as stream:
+                      data=stream.read(record['bytes']+1)
+                      if len(data)!=record['bytes'] or stream.read(1):
+                          fail('archive decompression bound exceeded')
+                  if hashlib.sha256(data).hexdigest()!=record['sha256']:
+                      fail('archive file hash differs')
+                  text=data.decode('utf-8-sig',errors='strict')
+                  if '\ufffd' in text:
+                      fail('invalid source text')
+                  staged[rel]=data
+              return staged
+
+
+          def validated_zip(path):
+              path=Path(path)
+              if path.is_symlink() or not path.is_file():
+                  fail('archive must be a regular file')
+              if path.stat().st_size!=SPEC['zipBytes']:
+                  fail('archive size differs')
+              with path.open('rb') as stream:
+                  data=stream.read(SPEC['zipBytes']+1)
+              if len(data)!=SPEC['zipBytes'] or hashlib.sha256(data).hexdigest()!=SPEC['zipSha256']:
+                  fail('archive hash differs')
+              with ZipFile(io.BytesIO(data)) as archive:
+                  return validate_structure(archive)
+
+
+          def publication_files(staged):
+              if set(staged)!=set(EXPECTED):
+                  fail('validated source set differs')
+              selected={name:data for name,data in staged.items() if not name.startswith('.github/workflows/')}
+              if len(selected)!=58:
+                  fail('non-workflow source count differs')
+              return selected
+
+
+          def git(*args):
+              result=subprocess.check_output(['git','-c','credential.helper=','-c','core.askPass=',*args],text=True)
+              return result.strip()
+
+
+          def check_context():
+              if os.environ.get('GITHUB_REPOSITORY')!='bigbang1438/supportdesk-ai' or os.environ.get('GITHUB_REF')!='refs/heads/main' or os.environ.get('GITHUB_EVENT_NAME')!='workflow_dispatch':
+                  fail('import is restricted to manual dispatch in the fixed repository/main')
+              base=os.environ.get('GITHUB_SHA','')
+              if not re.fullmatch('[a-f0-9]{40}',base) or git('rev-parse','HEAD')!=base:
+                  fail('checkout does not match dispatched commit')
+              if git('status','--porcelain','--untracked-files=all'):
+                  fail('checkout is not clean')
+              remote=git('ls-remote','https://github.com/bigbang1438/supportdesk-ai.git','refs/heads/main').split()
+              if not remote or remote[0]!=base:
+                  fail('main changed after dispatch; no source will be written')
+              return base
+
+
+          def checked_target(workspace,relative):
+              target=workspace/relative
+              if not target.resolve().is_relative_to(workspace):
+                  fail('destination escapes checkout')
+              current=workspace
+              for part in Path(relative).parts:
+                  current=current/part
+                  if current.is_symlink():
+                      fail('destination includes a symlink')
+              if target.exists() and not target.is_file():
+                  fail('destination is not a regular file')
+              return target
+
+
+          def apply_import():
+              base=check_context()
+              workspace=Path(os.environ['GITHUB_WORKSPACE']).resolve()
+              if Path.cwd().resolve()!=workspace:
+                  fail('unexpected working directory')
+              archive_path=checked_target(workspace,SPEC['zipFileName'])
+              staged=publication_files(validated_zip(archive_path))
+              targets={rel:checked_target(workspace,rel) for rel in staged}
+              git('ls-files','--error-unmatch','--',SPEC['zipFileName'])
+              # All archive bytes, names, destinations and hashes have passed before any write.
+              for rel,data in staged.items():
+                  target=targets[rel]
+                  target.parent.mkdir(parents=True,exist_ok=True)
+                  target.write_bytes(data)
+              subprocess.run(['git','add','--',*sorted(staged)],check=True)
+              subprocess.run(['git','rm','--',SPEC['zipFileName']],check=True)
+              changed=set(filter(None,subprocess.check_output(['git','diff','--cached','--name-only','-z']).decode().split('\x00')))
+              if SPEC['zipFileName'] not in changed or not changed.issubset(set(staged)|{SPEC['zipFileName']}):
+                  fail('staged paths exceed publication allowlist')
+              deleted=set(filter(None,subprocess.check_output(['git','diff','--cached','--diff-filter=D','--name-only','-z']).decode().split('\x00')))
+              if deleted!={SPEC['zipFileName']} or git('diff','--name-only'):
+                  fail('unexpected deletion or unstaged change')
+              subprocess.run(['git','-c','user.name=github-actions[bot]',
+                  '-c','user.email=41898282+github-actions[bot]@users.noreply.github.com',
+                  'commit','-m','Import verified SupportDesk source'],check=True)
+              commit=git('rev-parse','HEAD')
+              if git('rev-parse','HEAD^')!=base or git('status','--porcelain','--untracked-files=all'):
+                  fail('unexpected import commit or dirty checkout')
+              with Path(os.environ['GITHUB_OUTPUT']).open('a',encoding='utf-8') as stream:
+                  stream.write('base='+base+'\ncommit='+commit+'\n')
+              print('Validated 59 source files; imported 58 non-workflow paths and removed only the uploaded source ZIP.')
+              print('Import commit:',commit)
+
+
+          def main():
+              parser=argparse.ArgumentParser()
+              group=parser.add_mutually_exclusive_group(required=True)
+              group.add_argument('--check-only',type=Path)
+              group.add_argument('--apply',action='store_true')
+              args=parser.parse_args()
+              if args.check_only:
+                  staged=validated_zip(args.check_only)
+                  selected=publication_files(staged)
+                  print('ZIP validation passed:',len(staged),'files,',sum(len(v) for v in staged.values()),'bytes;',len(selected),'publishable non-workflow files')
+              else:
+                  apply_import()
+
+
+          if __name__=='__main__':
+              main()
+          PY
+      - name: Publish one verified commit to main
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EXPECTED_BASE: ${{ steps.import_source.outputs.base }}
+          IMPORT_COMMIT: ${{ steps.import_source.outputs.commit }}
+        run: |
+          python3 - <<'PY'
+          import base64
+          import os
+          import re
+          import subprocess
+
+          if os.environ.get('GITHUB_REPOSITORY')!='bigbang1438/supportdesk-ai' or os.environ.get('GITHUB_REF')!='refs/heads/main' or os.environ.get('GITHUB_EVENT_NAME')!='workflow_dispatch':
+              raise SystemExit('Push restricted to manual dispatch in the fixed repository/main')
+          base=os.environ.get('EXPECTED_BASE','')
+          commit=os.environ.get('IMPORT_COMMIT','')
+          if not all(re.fullmatch('[a-f0-9]{40}',value) for value in [base,commit]):
+              raise SystemExit('Missing bounded import commit identifiers')
+          safe_env=dict(os.environ)
+          safe_env.pop('GH_TOKEN',None)
+          safe_env['GIT_TERMINAL_PROMPT']='0'
+          def read_git(*args):
+              return subprocess.check_output(['git','-c','credential.helper=','-c','core.askPass=',*args],env=safe_env,text=True).strip()
+          if read_git('rev-parse','HEAD')!=commit or read_git('rev-parse','HEAD^')!=base or read_git('status','--porcelain','--untracked-files=all'):
+              raise SystemExit('Checkout changed after source validation')
+          remote=read_git('ls-remote','https://github.com/bigbang1438/supportdesk-ai.git','refs/heads/main').split()
+          if not remote or remote[0]!=base:
+              raise SystemExit('Main changed; refusing to overwrite new work')
+          token=os.environ.get('GH_TOKEN','')
+          if not token:
+              raise SystemExit('Missing ephemeral job token')
+          encoded=base64.b64encode(('x-access-token:'+token).encode()).decode()
+          print('::add-mask::'+encoded,flush=True)
+          push_env=dict(safe_env)
+          push_env.update({'GIT_CONFIG_COUNT':'1','GIT_CONFIG_KEY_0':'http.https://github.com/.extraheader',
+                           'GIT_CONFIG_VALUE_0':'AUTHORIZATION: basic '+encoded,
+                           'GIT_TRACE':'0','GIT_TRACE_CURL':'0','GIT_CURL_VERBOSE':'0'})
+          # Exactly one authenticated command. No credential helper or config file receives the token.
+          subprocess.run(['git','-c','credential.helper=','-c','core.askPass=','push','--porcelain',
+              'https://github.com/bigbang1438/supportdesk-ai.git','HEAD:refs/heads/main'],env=push_env,check=True)
+          push_env.clear()
+          remote=read_git('ls-remote','https://github.com/bigbang1438/supportdesk-ai.git','refs/heads/main').split()
+          if not remote or remote[0]!=commit:
+              raise SystemExit('Remote commit verification failed')
+          print('Published verified source commit to fixed main:',commit)
+          PY
